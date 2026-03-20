@@ -29,9 +29,11 @@ VERIFIED CENSUS VARIABLE CODES (all validated against official Census API docs):
 
 import streamlit as st
 import pandas as pd
+import altair as alt
 import plotly.express as px
 import plotly.graph_objects as go
 from census import Census
+import us
 
 #
 # Page config
@@ -192,6 +194,78 @@ def load_b20004():
     return df
 
 
+@st.cache_data(show_spinner="Loading young interstate in-migration data (B07001)...")
+def load_b07001_young():
+    c = Census(API_KEY)
+    data = c.acs5.state(
+        ("NAME", "B07001_006E", "B07001_007E", "B07001_070E", "B07001_071E"),
+        Census.ALL
+    )
+    df = _census_to_df(data, {
+        "NAME": "state",
+        "B07001_006E": "pop_25_29",
+        "B07001_007E": "pop_30_34",
+        "B07001_070E": "young_in_25_29",
+        "B07001_071E": "young_in_30_34",
+    })
+    num_cols = ["pop_25_29", "pop_30_34", "young_in_25_29", "young_in_30_34"]
+    df[num_cols] = df[num_cols].apply(pd.to_numeric, errors="coerce")
+    df["young_pop_25_34"] = df["pop_25_29"] + df["pop_30_34"]
+    df["young_interstate_in"] = df["young_in_25_29"] + df["young_in_30_34"]
+    return df
+
+
+@st.cache_data(show_spinner="Loading young interstate out-migration proxy data (B07401)...")
+def load_b07401_young():
+    c = Census(API_KEY)
+    data = c.acs5.state(
+        ("NAME", "B07401_070E", "B07401_071E"),
+        Census.ALL
+    )
+    df = _census_to_df(data, {
+        "NAME": "state",
+        "B07401_070E": "young_out_25_29",
+        "B07401_071E": "young_out_30_34",
+    })
+    num_cols = ["young_out_25_29", "young_out_30_34"]
+    df[num_cols] = df[num_cols].apply(pd.to_numeric, errors="coerce")
+    df["young_interstate_out"] = df["young_out_25_29"] + df["young_out_30_34"]
+    return df
+
+
+@st.cache_data(show_spinner="Loading affordability pressure data (B25070)...")
+def load_b25070():
+    c = Census(API_KEY)
+    data = c.acs5.state(
+        ("NAME", "B25070_001E", "B25070_007E", "B25070_008E", "B25070_009E", "B25070_010E", "B25070_011E"),
+        Census.ALL
+    )
+    df = _census_to_df(data, {
+        "NAME": "state",
+        "B25070_001E": "renter_households_total",
+        "B25070_007E": "rent_30_34",
+        "B25070_008E": "rent_35_39",
+        "B25070_009E": "rent_40_49",
+        "B25070_010E": "rent_50_plus",
+        "B25070_011E": "rent_not_computed",
+    })
+    num_cols = [
+        "renter_households_total",
+        "rent_30_34",
+        "rent_35_39",
+        "rent_40_49",
+        "rent_50_plus",
+        "rent_not_computed",
+    ]
+    df[num_cols] = df[num_cols].apply(pd.to_numeric, errors="coerce")
+    df["rent_burdened_30plus"] = df["rent_30_34"] + df["rent_35_39"] + df["rent_40_49"] + df["rent_50_plus"]
+    df["renter_households_computed"] = df["renter_households_total"] - df["rent_not_computed"]
+    df["rent_burden_30plus_rate"] = (
+        df["rent_burdened_30plus"] / df["renter_households_computed"].replace(0, pd.NA)
+    ) * 100
+    return df
+
+
 @st.cache_data(show_spinner="Assembling master dataset…")
 def load_master():
     """
@@ -201,10 +275,16 @@ def load_master():
     b7_out = load_b07409()
     b15 = load_b15003()
     b20 = load_b20004()
+    b07001_young = load_b07001_young()
+    b07401_young = load_b07401_young()
+    b25070 = load_b25070()
 
     df = b7.merge(b7_out, on="state", how="left")
     df = df.merge(b15, on="state", how="left")
     df = df.merge(b20, on="state", how="left")
+    df = df.merge(b07001_young, on="state", how="left")
+    df = df.merge(b07401_young, on="state", how="left")
+    df = df.merge(b25070, on="state", how="left")
 
     #  Core migration metrics
     # Rate: educated in-migrants per 1,000 residents 25+
@@ -234,6 +314,12 @@ def load_master():
     df["bachelors_earnings_premium"] = df["median_earnings_bachelors"] - df["median_earnings_total"]
     df["graduate_earnings_premium"] = df["median_earnings_graduate"] - df["median_earnings_total"]
 
+    # Young talent mobility (ages 25-34)
+    df["young_net_migrants"] = df["young_interstate_in"] - df["young_interstate_out"]
+    df["young_inmig_rate"] = (df["young_interstate_in"] / df["young_pop_25_34"].replace(0, pd.NA)) * 1_000
+    df["young_outmig_rate"] = (df["young_interstate_out"] / df["young_pop_25_34"].replace(0, pd.NA)) * 1_000
+    df["young_net_migration_rate"] = df["young_inmig_rate"] - df["young_outmig_rate"]
+
     #  Policy labels
     nat_median_rate = df["net_migration_rate"].median()
     nat_median_conc = df["talent_concentration"].median()
@@ -242,13 +328,13 @@ def load_master():
         high_net = row["net_migration_rate"] > nat_median_rate
         high_conc = row["talent_concentration"] > nat_median_conc
         if high_net and high_conc:
-            return " Talent Hub"
+            return "Talent Hub"
         elif high_net and not high_conc:
-            return " Rising Gainer"
+            return "Rising Gainer"
         elif not high_net and high_conc:
-            return " At-Risk Retainer"
+            return "At-Risk Retainer"
         else:
-            return " Brain Drain Risk"
+            return "Brain Drain Risk"
 
     df["segment"] = df.apply(segment, axis=1)
 
@@ -275,6 +361,7 @@ with st.sidebar:
             " Talent Flow: Inflow vs Outflow",
             " Income & Talent Correlation",
             " Education Stock & Concentration",
+            " Young Talent + Affordability Risk",
             " State Comparison Tool",
             " Governor's Briefing",
             " Methodology & Limitations",
@@ -289,7 +376,7 @@ with st.sidebar:
     focal_state = st.selectbox(" Focal State", all_states,
                                index=all_states.index("North Carolina") if "North Carolina" in all_states else 0)
 
-    metric_mode = st.radio(" Metric Mode", ["Normalized (per 1k)", "Absolute Count"], horizontal=True)
+    st.caption("Metric Mode: Normalized (per 1k)")
 
     st.divider()
     st.caption("**Data Sources:**\nACS 5-Year Estimates\n• B07009 (in-migration)\n• B07409 (out-migration proxy)\n• B15003 (education stock)\n• B20004 (median earnings)")
@@ -302,14 +389,50 @@ def metric_card(value, label):
     return f"""<div class="metric-card"><h2>{value}</h2><p>{label}</p></div>"""
 
 
+def classify_consistency(row):
+    if row["net_migration_rate"] >= 0 and row["young_net_migration_rate"] < 0:
+        return "Educated Positive / Young Negative"
+    if row["net_migration_rate"] >= 0 and row["young_net_migration_rate"] >= 0:
+        return "Educated Positive / Young Positive"
+    if row["net_migration_rate"] < 0 and row["young_net_migration_rate"] >= 0:
+        return "Educated Negative / Young Positive"
+    return "Educated Negative / Young Negative"
+
+
+def format_metric_value(value, is_currency=False):
+    if pd.isna(value):
+        return "N/A"
+    if is_currency:
+        return f"${value:,.0f}"
+    if isinstance(value, str):
+        return value
+    if abs(value) >= 100:
+        return f"{value:+,.0f}" if value < 0 else f"{value:,.0f}"
+    return f"{value:+.2f}" if value < 0 else f"{value:.2f}"
+
+
+def get_metric_mode_config():
+    return {
+        "normalized": True,
+        "educated_col": "net_migration_rate",
+        "educated_label": "Educated Net Rate (per 1k)",
+        "educated_axis": "Educated Net Migration Rate (per 1k)",
+        "young_col": "young_net_migration_rate",
+        "young_label": "Young Net Rate (25-34, per 1k)",
+        "young_axis": "Young Net Migration Rate (per 1k, ages 25-34)",
+        "mode_suffix": "Rate",
+    }
+
+
 #
 # MODULE 1: EXECUTIVE DASHBOARD
 #
 if analysis_section == " Executive Dashboard":
-    st.title(" Brain Drain Intelligence Platform")
+    st.title("Brain Drain Intelligence Platform")
     st.markdown("**Team 2 — Economic Policy Advisors to the Governor** | ACS 5-Year Estimates")
 
     focal = df[df["state"] == focal_state].iloc[0]
+    mode_config = get_metric_mode_config()
 
     # KPI Row
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -329,48 +452,68 @@ if analysis_section == " Executive Dashboard":
 
     st.markdown("<br>", unsafe_allow_html=True)
 
+    # Decision scorecard for presentation
+    st.markdown('<div class="section-header">Brain Drain Decision Scorecard (Focal State)</div>', unsafe_allow_html=True)
+    s1, s2, s3, s4 = st.columns(4)
+    with s1:
+        st.markdown(metric_card(format_metric_value(focal[mode_config["educated_col"]]), mode_config["educated_label"]), unsafe_allow_html=True)
+    with s2:
+        st.markdown(metric_card(format_metric_value(focal[mode_config["young_col"]]), mode_config["young_label"]), unsafe_allow_html=True)
+    with s3:
+        st.markdown(metric_card(f"{focal['rent_burden_30plus_rate']:.1f}%", "Rent Burden (30%+)"), unsafe_allow_html=True)
+    with s4:
+        st.markdown(metric_card(f"${focal['bachelors_earnings_premium']:,.0f}", "BA Earnings Premium"), unsafe_allow_html=True)
+
+    if focal["net_migration_rate"] >= 0 and focal["young_net_migration_rate"] < 0:
+        st.markdown("""
+        <div class="warn-box">
+        <b>Signal Divergence:</b> Educated net migration is positive, but young (25-34) net migration is negative.
+        This is a direct comparison of two ACS-derived metrics.
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
     # Quadrant scatter
     st.markdown('<div class="section-header">National Talent Positioning Map</div>', unsafe_allow_html=True)
-    st.caption("X-axis = Net migration rate (in minus out per 1k) | Y-axis = Talent concentration % | Size = education stock")
-
-    highlight_col = df["state"].apply(lambda s: " Focal State" if s == focal_state else focal["segment"] if s == focal_state else df.loc[df["state"]==s, "segment"].values[0])
+    st.caption(f"X-axis = {mode_config['educated_axis']} | Y-axis = Talent concentration % | Size = education stock")
     color_map = {
-        " Talent Hub": "#1565c0",
-        " Rising Gainer": "#2e7d32",
-        " At-Risk Retainer": "#f57c00",
-        " Brain Drain Risk": "#c62828",
+        "Talent Hub": "#1565c0",
+        "Rising Gainer": "#2e7d32",
+        "At-Risk Retainer": "#f57c00",
+        "Brain Drain Risk": "#c62828",
     }
 
     fig_quad = px.scatter(
         df,
-        x="net_migration_rate",
+        x=mode_config["educated_col"],
         y="talent_concentration",
         size="stock_educated_total",
         color="segment",
         color_discrete_map=color_map,
         hover_name="state",
         hover_data={
-            "net_migration_rate": ":.2f",
+            mode_config["educated_col"]: ":.2f" if mode_config["normalized"] else ":,",
             "talent_concentration": ":.1f",
             "net_educated_migrants": ":,",
             "stock_educated_total": ":,",
             "segment": False,
         },
         labels={
-            "net_migration_rate": "Net Educated Migration Rate (per 1k)",
+            mode_config["educated_col"]: mode_config["educated_axis"],
             "talent_concentration": "Talent Concentration (%)",
             "stock_educated_total": "Total Educated Stock",
         },
-        title="State Talent Positioning: Net Migration Rate vs. Talent Concentration",
+        title=f"State Talent Positioning: {mode_config['educated_label']} vs. Talent Concentration",
         height=520,
     )
     # Quadrant lines
     fig_quad.add_hline(y=df["talent_concentration"].median(), line_dash="dash", line_color="gray", opacity=0.5)
-    fig_quad.add_vline(x=df["net_migration_rate"].median(), line_dash="dash", line_color="gray", opacity=0.5)
+    fig_quad.add_vline(x=df[mode_config["educated_col"]].median(), line_dash="dash", line_color="gray", opacity=0.5)
     # Highlight focal state
     focal_row = df[df["state"] == focal_state]
     fig_quad.add_scatter(
-        x=focal_row["net_migration_rate"], y=focal_row["talent_concentration"],
+        x=focal_row[mode_config["educated_col"]], y=focal_row["talent_concentration"],
         mode="markers+text", text=[focal_state], textposition="top right",
         marker=dict(size=18, color="gold", line=dict(width=2, color="black")),
         showlegend=False, name=focal_state,
@@ -378,15 +521,231 @@ if analysis_section == " Executive Dashboard":
     fig_quad.update_layout(legend_title="Policy Segment")
     st.plotly_chart(fig_quad, use_container_width=True)
 
-    # Segment table
-    st.markdown('<div class="section-header">State Segment Summary</div>', unsafe_allow_html=True)
-    seg_summary = df.groupby("segment").agg(
-        States=("state", "count"),
-        Avg_Net_Rate=("net_migration_rate", "mean"),
-        Avg_Concentration=("talent_concentration", "mean"),
-    ).round(2).reset_index()
-    seg_summary.columns = ["Segment", "# States", "Avg Net Rate (per 1k)", "Avg Talent Concentration (%)"]
-    st.dataframe(seg_summary, use_container_width=True, hide_index=True)
+    # Altair choropleth: net educated migration rate by state
+    st.markdown('<div class="section-header">Geographic Brain Drain Signal (Choropleth)</div>', unsafe_allow_html=True)
+    st.caption(f"Diverging scale centered at zero: red = net talent loss, blue = net talent gain. Current view: {mode_config['educated_label']}.")
+
+    map_df = df[["state", mode_config["educated_col"], "segment", "talent_concentration", "net_educated_migrants"]].copy()
+    map_df["id"] = map_df["state"].apply(lambda s: us.states.lookup(s).fips if us.states.lookup(s) else None)
+    map_df = map_df.dropna(subset=["id", mode_config["educated_col"]])
+    map_df["id"] = map_df["id"].astype(str).str.zfill(2)
+    max_abs_rate = float(map_df[mode_config["educated_col"]].abs().max()) if not map_df.empty else 1.0
+    if max_abs_rate == 0:
+        max_abs_rate = 1.0
+
+    states_topo = alt.topo_feature("https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json", "states")
+
+    base_states = (
+        alt.Chart(states_topo)
+        .mark_geoshape(fill="#e5e7eb", stroke="#9ca3af", strokeWidth=0.8)
+        .project(type="albersUsa")
+        .properties(height=500)
+    )
+
+    choropleth = (
+        alt.Chart(states_topo)
+        .mark_geoshape(stroke="#374151", strokeWidth=0.4)
+        .transform_calculate(
+            id_str="toString(datum.id).length == 1 ? '0' + toString(datum.id) : toString(datum.id)"
+        )
+        .transform_lookup(
+            lookup="id_str",
+            from_=alt.LookupData(
+                map_df,
+                "id",
+                ["state", mode_config["educated_col"], "segment", "talent_concentration", "net_educated_migrants"],
+            ),
+        )
+        .encode(
+            color=alt.Color(
+                f"{mode_config['educated_col']}:Q",
+                title=mode_config["educated_label"],
+                scale=alt.Scale(scheme="redblue", domain=[-max_abs_rate, max_abs_rate]),
+            ),
+            tooltip=[
+                alt.Tooltip("state:N", title="State"),
+                alt.Tooltip(f"{mode_config['educated_col']}:Q", title=mode_config["educated_label"], format=".2f" if mode_config["normalized"] else ",.0f"),
+                alt.Tooltip("net_educated_migrants:Q", title="Net Migrants", format=",.0f"),
+                alt.Tooltip("talent_concentration:Q", title="Talent Concentration (%)", format=".1f"),
+                alt.Tooltip("segment:N", title="Segment"),
+            ],
+        )
+        .project(type="albersUsa")
+        .properties(height=500)
+    )
+
+    focal_outline = (
+        alt.Chart(states_topo)
+        .mark_geoshape(fillOpacity=0, stroke="#f9a825", strokeWidth=2.5)
+        .transform_calculate(
+            id_str="toString(datum.id).length == 1 ? '0' + toString(datum.id) : toString(datum.id)"
+        )
+        .transform_lookup(
+            lookup="id_str",
+            from_=alt.LookupData(map_df, "id", ["state"]),
+        )
+        .transform_filter(alt.datum.state == focal_state)
+        .project(type="albersUsa")
+    )
+
+    st.altair_chart(alt.layer(base_states, choropleth, focal_outline), use_container_width=True)
+
+    # Consistency check + risk tiers
+    st.markdown('<div class="section-header">Consistency Check: Educated vs Young Net Migration</div>', unsafe_allow_html=True)
+    df_consistency = df.copy()
+    df_consistency["consistency_label"] = df_consistency.apply(classify_consistency, axis=1)
+    consistency_colors = {
+        "Educated Positive / Young Positive": "#2e7d32",
+        "Educated Positive / Young Negative": "#f57c00",
+        "Educated Negative / Young Positive": "#1565c0",
+        "Educated Negative / Young Negative": "#c62828",
+    }
+
+    c1, c2 = st.columns(2)
+    with c1:
+        fig_consistency = px.scatter(
+            df_consistency,
+            x=mode_config["educated_col"],
+            y=mode_config["young_col"],
+            color="consistency_label",
+            color_discrete_map=consistency_colors,
+            size="stock_educated_total",
+            hover_name="state",
+            labels={
+                mode_config["educated_col"]: mode_config["educated_axis"],
+                mode_config["young_col"]: mode_config["young_axis"],
+                "consistency_label": "Signal Class",
+            },
+            title="Educated vs Young Net Migration Matrix",
+            height=450,
+        )
+        fig_consistency.add_vline(x=0, line_dash="dash", line_color="gray")
+        fig_consistency.add_hline(y=0, line_dash="dash", line_color="gray")
+        focal_consistency = df_consistency[df_consistency["state"] == focal_state]
+        if not focal_consistency.empty:
+            fig_consistency.add_scatter(
+                x=focal_consistency[mode_config["educated_col"]],
+                y=focal_consistency[mode_config["young_col"]],
+                mode="markers+text",
+                text=[focal_state],
+                textposition="top right",
+                marker=dict(size=16, color="gold", line=dict(width=2, color="black")),
+                showlegend=False,
+            )
+        st.plotly_chart(fig_consistency, use_container_width=True)
+
+    with c2:
+        top_young = df[["state", "young_net_migration_rate"]].dropna()
+        top_young = pd.concat([
+            top_young.nlargest(10, "young_net_migration_rate"),
+            top_young.nsmallest(10, "young_net_migration_rate"),
+        ]).drop_duplicates().sort_values("young_net_migration_rate")
+        top_young["color"] = top_young["young_net_migration_rate"].apply(lambda x: "#c62828" if x < 0 else "#2e7d32")
+        fig_risk_counts = go.Figure(go.Bar(
+            x=top_young["young_net_migration_rate"],
+            y=top_young["state"],
+            orientation="h",
+            marker_color=top_young["color"],
+            text=top_young["young_net_migration_rate"].round(2),
+            textposition="outside",
+        ))
+        fig_risk_counts.add_vline(x=0, line_width=2, line_color="black")
+        fig_risk_counts.update_layout(
+            title="Top and Bottom States: Young Net Migration Rate",
+            xaxis_title="Young Net Migration Rate (per 1k)",
+            height=450,
+            showlegend=False,
+            yaxis={"categoryorder": "total ascending"},
+        )
+        st.plotly_chart(fig_risk_counts, use_container_width=True)
+
+    # Peer benchmarking
+    st.markdown('<div class="section-header">Peer Benchmarking (5-State Comparator Set)</div>', unsafe_allow_html=True)
+    st.caption("Select up to 5 comparison states manually. No peers are auto-generated.")
+    selected_peers = st.multiselect(
+        "Peer States",
+        options=[s for s in all_states if s != focal_state],
+        default=[],
+        max_selections=5,
+    )
+    benchmark_states = [focal_state] + selected_peers
+    bench = df[df["state"].isin(benchmark_states)].copy()
+
+    rank_net = df[mode_config["educated_col"]].rank(ascending=False, method="min")
+    rank_young = df[mode_config["young_col"]].rank(ascending=False, method="min")
+    rank_rent = df["rent_burden_30plus_rate"].rank(ascending=True, method="min")
+    rank_premium = df["bachelors_earnings_premium"].rank(ascending=False, method="min")
+    national_medians = {
+        mode_config["educated_col"]: df[mode_config["educated_col"]].median(),
+        mode_config["young_col"]: df[mode_config["young_col"]].median(),
+        "rent_burden_30plus_rate": df["rent_burden_30plus_rate"].median(),
+        "bachelors_earnings_premium": df["bachelors_earnings_premium"].median(),
+    }
+
+    bench["Rank Net"] = bench.index.map(rank_net)
+    bench["Rank Young"] = bench.index.map(rank_young)
+    bench["Rank Rent"] = bench.index.map(rank_rent)
+    bench["Rank Premium"] = bench.index.map(rank_premium)
+    bench["Gap vs US Median (Net)"] = bench[mode_config["educated_col"]] - national_medians[mode_config["educated_col"]]
+    bench["Gap vs US Median (Young)"] = bench[mode_config["young_col"]] - national_medians[mode_config["young_col"]]
+    bench["Gap vs US Median (Rent)"] = bench["rent_burden_30plus_rate"] - national_medians["rent_burden_30plus_rate"]
+    bench["Gap vs US Median (Premium)"] = bench["bachelors_earnings_premium"] - national_medians["bachelors_earnings_premium"]
+
+    benchmark_table = bench[
+        [
+            "state",
+            mode_config["educated_col"],
+            mode_config["young_col"],
+            "rent_burden_30plus_rate",
+            "bachelors_earnings_premium",
+            "Rank Net",
+            "Rank Young",
+            "Rank Rent",
+            "Rank Premium",
+            "Gap vs US Median (Net)",
+            "Gap vs US Median (Young)",
+            "Gap vs US Median (Rent)",
+            "Gap vs US Median (Premium)",
+        ]
+    ].copy()
+    benchmark_table.columns = [
+        "State",
+        mode_config["educated_label"],
+        mode_config["young_label"],
+        "Rent Burden (30%+)",
+        "BA Earnings Premium ($)",
+        "Rank: Net",
+        "Rank: Young",
+        "Rank: Rent (lower better)",
+        "Rank: Premium",
+        "Gap to US Median: Net",
+        "Gap to US Median: Young",
+        "Gap to US Median: Rent",
+        "Gap to US Median: Premium",
+    ]
+    st.dataframe(benchmark_table.round(2), use_container_width=True, hide_index=True)
+
+    gap_chart = bench[["state", "Gap vs US Median (Net)", "Gap vs US Median (Young)", "Gap vs US Median (Rent)"]].melt(
+        id_vars="state",
+        var_name="Metric",
+        value_name="Gap",
+    )
+    gap_chart["Metric"] = gap_chart["Metric"].map({
+        "Gap vs US Median (Net)": "Net Rate Gap",
+        "Gap vs US Median (Young)": "Young Net Gap",
+        "Gap vs US Median (Rent)": "Rent Burden Gap",
+    })
+    fig_gap = px.bar(
+        gap_chart,
+        x="state",
+        y="Gap",
+        color="Metric",
+        barmode="group",
+        title=f"Peer Gaps vs U.S. Median ({mode_config['mode_suffix']} View)",
+        height=420,
+    )
+    fig_gap.add_hline(y=0, line_dash="dash", line_color="gray")
+    st.plotly_chart(fig_gap, use_container_width=True)
 
 
 #
@@ -402,49 +761,29 @@ elif analysis_section == " Talent Flow: Inflow vs Outflow":
     </div>
     """, unsafe_allow_html=True)
 
+    mode_config = get_metric_mode_config()
     col1, col2 = st.columns(2)
 
     with col1:
-        # Diverging bar: net migration rate
-        st.markdown('<div class="section-header">Net Educated Migration Rate (per 1,000 residents 25+)</div>', unsafe_allow_html=True)
-        df_div = df[["state", "net_migration_rate"]].sort_values("net_migration_rate")
-        df_div["color"] = df_div["net_migration_rate"].apply(lambda x: "#c62828" if x < 0 else "#1565c0")
+        st.markdown(f'<div class="section-header">{mode_config["educated_label"]}</div>', unsafe_allow_html=True)
+        df_div = df[["state", mode_config["educated_col"]]].sort_values(mode_config["educated_col"])
+        df_div["color"] = df_div[mode_config["educated_col"]].apply(lambda x: "#c62828" if x < 0 else "#1565c0")
         fig_div = go.Figure(go.Bar(
-            x=df_div["net_migration_rate"],
+            x=df_div[mode_config["educated_col"]],
             y=df_div["state"],
             orientation="h",
             marker_color=df_div["color"],
-            text=df_div["net_migration_rate"].round(2),
+            text=df_div[mode_config["educated_col"]].round(2) if mode_config["normalized"] else df_div[mode_config["educated_col"]].round(0),
             textposition="outside",
         ))
         fig_div.add_vline(x=0, line_width=2, line_color="black")
         fig_div.update_layout(
-            height=900, xaxis_title="Net Rate per 1,000",
+            height=900, xaxis_title=mode_config["educated_axis"],
             yaxis={"categoryorder": "total ascending"}, showlegend=False,
         )
         st.plotly_chart(fig_div, use_container_width=True)
 
     with col2:
-        # Top gainers vs losers
-        st.markdown('<div class="section-header">Top 10 Gainers vs. Top 10 Losers</div>', unsafe_allow_html=True)
-        top10_gain = df.nlargest(10, "net_educated_migrants")[["state", "net_educated_migrants", "segment"]]
-        top10_loss = df.nsmallest(10, "net_educated_migrants")[["state", "net_educated_migrants", "segment"]]
-        combined = pd.concat([top10_gain, top10_loss]).sort_values("net_educated_migrants")
-        combined["color"] = combined["net_educated_migrants"].apply(lambda x: "#c62828" if x < 0 else "#1565c0")
-
-        fig_comb = go.Figure(go.Bar(
-            x=combined["net_educated_migrants"],
-            y=combined["state"],
-            orientation="h",
-            marker_color=combined["color"],
-        ))
-        fig_comb.add_vline(x=0, line_width=2, line_color="black")
-        fig_comb.update_layout(
-            height=500, xaxis_title="Net Educated Migrants (absolute)",
-            yaxis={"categoryorder": "total ascending"}, showlegend=False,
-        )
-        st.plotly_chart(fig_comb, use_container_width=True)
-
         # Educated share of total migration
         st.markdown('<div class="section-header">Educated Share of Total Interstate Migration</div>', unsafe_allow_html=True)
         df_share = df[["state", "edu_share_of_inmig", "edu_share_of_outmig"]].dropna()
@@ -505,8 +844,8 @@ elif analysis_section == " Income & Talent Correlation":
             color="segment",
             hover_name="state",
             color_discrete_map={
-                " Talent Hub": "#1565c0", " Rising Gainer": "#2e7d32",
-                " At-Risk Retainer": "#f57c00", " Brain Drain Risk": "#c62828",
+                "Talent Hub": "#1565c0", "Rising Gainer": "#2e7d32",
+                "At-Risk Retainer": "#f57c00", "Brain Drain Risk": "#c62828",
             },
             labels={
                 "median_earnings_bachelors": "Median Earnings: Bachelor's Degree ($)",
@@ -528,61 +867,37 @@ elif analysis_section == " Income & Talent Correlation":
         st.plotly_chart(fig_earn, use_container_width=True)
 
     with col2:
-        st.markdown('<div class="section-header">Graduate Earnings vs. In-Migration Rate</div>', unsafe_allow_html=True)
-        df_grad_earn = df.dropna(subset=["median_earnings_graduate", "edu_inmig_rate"])
+        st.markdown('<div class="section-header">BA Earnings Premium vs. Young Net Migration</div>', unsafe_allow_html=True)
+        st.caption("Tests whether stronger BA wage premium aligns with better young talent retention.")
+        df_premium = df.dropna(subset=["bachelors_earnings_premium", "young_net_migration_rate"])
         fig_grad = px.scatter(
-            df_grad_earn,
-            x="median_earnings_graduate",
-            y="edu_inmig_rate",
+            df_premium,
+            x="bachelors_earnings_premium",
+            y="young_net_migration_rate",
             size="stock_educated_total",
             color="segment",
             hover_name="state",
             color_discrete_map={
-                " Talent Hub": "#1565c0", " Rising Gainer": "#2e7d32",
-                " At-Risk Retainer": "#f57c00", " Brain Drain Risk": "#c62828",
+                "Talent Hub": "#1565c0", "Rising Gainer": "#2e7d32",
+                "At-Risk Retainer": "#f57c00", "Brain Drain Risk": "#c62828",
             },
             labels={
-                "median_earnings_graduate": "Median Earnings: Graduate Degree ($)",
-                "edu_inmig_rate": "Educated In-Migration Rate (per 1k)",
+                "bachelors_earnings_premium": "BA Earnings Premium ($ vs all workers)",
+                "young_net_migration_rate": "Young Net Migration Rate (per 1k)",
             },
-            title="Graduate Earnings vs. Educated In-Migration Rate",
+            title="BA Earnings Premium and Young Retention Signal",
             trendline="ols",
             height=450,
         )
-        focal_row2 = df_grad_earn[df_grad_earn["state"] == focal_state]
+        focal_row2 = df_premium[df_premium["state"] == focal_state]
         if not focal_row2.empty:
             fig_grad.add_scatter(
-                x=focal_row2["median_earnings_graduate"], y=focal_row2["edu_inmig_rate"],
+                x=focal_row2["bachelors_earnings_premium"], y=focal_row2["young_net_migration_rate"],
                 mode="markers+text", text=[focal_state], textposition="top right",
                 marker=dict(size=16, color="gold", line=dict(width=2, color="black")),
                 showlegend=False,
             )
         st.plotly_chart(fig_grad, use_container_width=True)
-
-    # Earnings ranking bar chart
-    st.markdown('<div class="section-header">Median Earnings by Education Level — State Comparison</div>', unsafe_allow_html=True)
-    df_earn_long = df[["state", "median_earnings_bachelors", "median_earnings_graduate", "median_earnings_total"]]\
-        .dropna().sort_values("median_earnings_bachelors", ascending=False)
-    df_earn_melt = df_earn_long.melt(id_vars="state", var_name="Level", value_name="Median Earnings ($)")
-    df_earn_melt["Level"] = df_earn_melt["Level"].map({
-        "median_earnings_bachelors": "Bachelor's",
-        "median_earnings_graduate": "Graduate/Professional",
-        "median_earnings_total": "All Education Levels",
-    })
-    fig_rank_earn = px.bar(
-        df_earn_melt,
-        x="Median Earnings ($)", y="state", color="Level", orientation="h",
-        barmode="group",
-        color_discrete_map={
-            "Bachelor's": "#1565c0",
-            "Graduate/Professional": "#0d47a1",
-            "All Education Levels": "#78909c",
-        },
-        title="Median Earnings by Education Level (Pop. 25+)",
-        height=900,
-    )
-    fig_rank_earn.update_layout(yaxis={"categoryorder": "array", "categoryarray": df_earn_long["state"].tolist()})
-    st.plotly_chart(fig_rank_earn, use_container_width=True)
 
 
 #
@@ -602,8 +917,8 @@ elif analysis_section == " Education Stock & Concentration":
             df_conc,
             x="talent_concentration", y="state", color="segment", orientation="h",
             color_discrete_map={
-                " Talent Hub": "#1565c0", " Rising Gainer": "#2e7d32",
-                " At-Risk Retainer": "#f57c00", " Brain Drain Risk": "#c62828",
+                "Talent Hub": "#1565c0", "Rising Gainer": "#2e7d32",
+                "At-Risk Retainer": "#f57c00", "Brain Drain Risk": "#c62828",
             },
             labels={"talent_concentration": "% Population 25+ with BA+", "state": ""},
             title="Talent Concentration by State",
@@ -617,31 +932,28 @@ elif analysis_section == " Education Stock & Concentration":
         st.plotly_chart(fig_conc, use_container_width=True)
 
     with col2:
-        # Graduate degree composition heatmap (stock)
-        st.markdown('<div class="section-header">Graduate Degree Composition of Education Stock</div>', unsafe_allow_html=True)
-        df_deg = df[["state", "stock_bachelors", "stock_masters", "stock_professional", "stock_doctorate"]]\
-            .sort_values("stock_bachelors", ascending=False).head(30)
-        df_deg_melt = df_deg.melt(id_vars="state", var_name="Degree", value_name="Count")
-        df_deg_melt["Degree"] = df_deg_melt["Degree"].map({
-            "stock_bachelors": "Bachelor's",
-            "stock_masters": "Master's",
-            "stock_professional": "Professional",
-            "stock_doctorate": "Doctorate",
-        })
+        st.markdown('<div class="section-header">Highest Rent Burden States</div>', unsafe_allow_html=True)
+        df_risk = df[["state", "rent_burden_30plus_rate"]].dropna()\
+            .sort_values("rent_burden_30plus_rate", ascending=False).head(20)
         fig_deg = px.bar(
-            df_deg_melt, x="Count", y="state", color="Degree", orientation="h",
-            barmode="relative",
-            color_discrete_sequence=px.colors.sequential.Blues_r,
-            title="Education Stock Composition (Top 30 States)",
+            df_risk,
+            x="rent_burden_30plus_rate",
+            y="state",
+            orientation="h",
+            color_discrete_sequence=["#c62828"],
+            title="States with Highest Rent Burden (30%+)",
             height=700,
+            labels={
+                "rent_burden_30plus_rate": "Rent Burden Rate (30%+)",
+            },
         )
-        fig_deg.update_layout(barnorm="percent", yaxis={"categoryorder": "total ascending"})
+        fig_deg.update_layout(yaxis={"categoryorder": "total ascending"})
         st.plotly_chart(fig_deg, use_container_width=True)
 
     # Migration as % of stock — key brain drain indicator
     st.markdown('<div class="section-header">Out-Migration as % of Educated Stock — The Brain Drain Signal</div>', unsafe_allow_html=True)
     st.caption("States where a large share of their educated workers are leaving face structural talent erosion.")
-    df_drain = df[["state", "inmig_pct_of_stock", "outmig_pct_of_stock", "segment"]].dropna().sort_values("outmig_pct_of_stock", ascending=False)
+    df_drain = df[["state", "inmig_pct_of_stock", "outmig_pct_of_stock", "segment", "stock_educated_total"]].dropna().sort_values("outmig_pct_of_stock", ascending=False)
     df_drain_melt = df_drain.melt(id_vars=["state", "segment"], var_name="Direction", value_name="% of Stock")
     df_drain_melt["Direction"] = df_drain_melt["Direction"].map({
         "inmig_pct_of_stock": "In-Migration % of Stock",
@@ -654,8 +966,8 @@ elif analysis_section == " Education Stock & Concentration":
         size="stock_educated_total",
         hover_name="state",
         color_discrete_map={
-            " Talent Hub": "#1565c0", " Rising Gainer": "#2e7d32",
-            " At-Risk Retainer": "#f57c00", " Brain Drain Risk": "#c62828",
+            "Talent Hub": "#1565c0", "Rising Gainer": "#2e7d32",
+            "At-Risk Retainer": "#f57c00", "Brain Drain Risk": "#c62828",
         },
         labels={
             "inmig_pct_of_stock": "Educated In-Migrants as % of Stock",
@@ -680,6 +992,126 @@ elif analysis_section == " Education Stock & Concentration":
 
 #
 # MODULE 5: STATE COMPARISON
+#
+elif analysis_section == " Young Talent + Affordability Risk":
+    st.header(" Young Talent + Affordability Risk")
+    st.caption("Adds ages 25-34 interstate movement (B07001/B07401) and renter cost-burden pressure (B25070).")
+
+    focal_young = df[df["state"] == focal_state].iloc[0]
+    mode_config = get_metric_mode_config()
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.markdown(metric_card(f"{int(focal_young['young_interstate_in']):,}", "Young In-Migrants (25-34)"), unsafe_allow_html=True)
+    with col2:
+        st.markdown(metric_card(f"{int(focal_young['young_interstate_out']):,}", "Young Out-Migrants (25-34, est.)"), unsafe_allow_html=True)
+    with col3:
+        st.markdown(metric_card(format_metric_value(focal_young[mode_config["young_col"]]), mode_config["young_label"]), unsafe_allow_html=True)
+    with col4:
+        rate = focal_young["rent_burden_30plus_rate"]
+        st.markdown(metric_card(f"{rate:.1f}%", "Rent-Burdened Renters (30%+)"), unsafe_allow_html=True)
+
+    col_left, col_right = st.columns(2)
+    with col_left:
+        st.markdown(f'<div class="section-header">Housing Pressure vs. {mode_config["young_label"]}</div>', unsafe_allow_html=True)
+        df_young = df.dropna(subset=[mode_config["young_col"], "rent_burden_30plus_rate", "young_pop_25_34"])
+        fig_young_housing = px.scatter(
+            df_young,
+            x="rent_burden_30plus_rate",
+            y=mode_config["young_col"],
+            color="segment",
+            size="young_pop_25_34",
+            hover_name="state",
+            labels={
+                "rent_burden_30plus_rate": "Renter Cost-Burden Rate (30%+)",
+                mode_config["young_col"]: mode_config["young_axis"],
+            },
+            color_discrete_map={
+                "Talent Hub": "#1565c0", "Rising Gainer": "#2e7d32",
+                "At-Risk Retainer": "#f57c00", "Brain Drain Risk": "#c62828",
+            },
+            title="Do High Housing Costs Align with Young Talent Loss?",
+            trendline="ols",
+            height=520,
+        )
+        focal_row = df_young[df_young["state"] == focal_state]
+        if not focal_row.empty:
+            fig_young_housing.add_scatter(
+                x=focal_row["rent_burden_30plus_rate"],
+                y=focal_row[mode_config["young_col"]],
+                mode="markers+text",
+                text=[focal_state],
+                textposition="top right",
+                marker=dict(size=16, color="gold", line=dict(width=2, color="black")),
+                showlegend=False,
+            )
+        fig_young_housing.add_hline(y=0, line_dash="dash", line_color="gray")
+        st.plotly_chart(fig_young_housing, use_container_width=True)
+
+    with col_right:
+        st.markdown(f'<div class="section-header">{mode_config["young_label"]} Ranking</div>', unsafe_allow_html=True)
+        df_rank = df[["state", mode_config["young_col"]]].dropna().sort_values(mode_config["young_col"])
+        df_rank["color"] = df_rank[mode_config["young_col"]].apply(lambda x: "#c62828" if x < 0 else "#1565c0")
+        fig_rank = go.Figure(go.Bar(
+            x=df_rank[mode_config["young_col"]],
+            y=df_rank["state"],
+            orientation="h",
+            marker_color=df_rank["color"],
+            text=df_rank[mode_config["young_col"]].round(2) if mode_config["normalized"] else df_rank[mode_config["young_col"]].round(0),
+            textposition="outside",
+        ))
+        fig_rank.add_vline(x=0, line_width=2, line_color="black")
+        fig_rank.update_layout(
+            height=860,
+            xaxis_title=mode_config["young_axis"],
+            yaxis={"categoryorder": "total ascending"},
+            showlegend=False,
+        )
+        st.plotly_chart(fig_rank, use_container_width=True)
+
+    st.markdown('<div class="section-header">Cost-Burdened Renters (30%+) by State</div>', unsafe_allow_html=True)
+    df_cost = df[["state", "rent_burden_30plus_rate"]].dropna().sort_values("rent_burden_30plus_rate", ascending=False)
+    df_cost["Highlight"] = df_cost["state"].apply(lambda s: focal_state if s == focal_state else "Other States")
+    fig_cost = px.bar(
+        df_cost,
+        x="rent_burden_30plus_rate",
+        y="state",
+        color="Highlight",
+        color_discrete_map={focal_state: "#f9a825", "Other States": "#90a4ae"},
+        orientation="h",
+        labels={"rent_burden_30plus_rate": "Renter Cost-Burden Rate (30%+)", "state": ""},
+        height=900,
+        title="Share of Renters Spending 30%+ of Income on Housing",
+    )
+    fig_cost.update_layout(yaxis={"categoryorder": "total ascending"}, showlegend=False)
+    st.plotly_chart(fig_cost, use_container_width=True)
+
+    st.markdown('<div class="section-header">Young Talent + Affordability Diagnostic Table</div>', unsafe_allow_html=True)
+    diag_cols = [
+        "state",
+        "young_interstate_in",
+        "young_interstate_out",
+        "young_net_migrants",
+        "young_inmig_rate",
+        "young_outmig_rate",
+        "young_net_migration_rate",
+        "rent_burden_30plus_rate",
+    ]
+    diag_df = df[diag_cols].copy().rename(columns={
+        "state": "State",
+        "young_interstate_in": "Young In-Migrants",
+        "young_interstate_out": "Young Out-Migrants (est.)",
+        "young_net_migrants": "Young Net Migrants",
+        "young_inmig_rate": "Young In-Rate (per 1k)",
+        "young_outmig_rate": "Young Out-Rate (per 1k)",
+        "young_net_migration_rate": "Young Net Rate (per 1k)",
+        "rent_burden_30plus_rate": "Rent Burden Rate 30%+",
+    }).round(2)
+    st.dataframe(diag_df.sort_values("Young Net Rate (per 1k)"),
+                 use_container_width=True, hide_index=True)
+
+
+#
+# MODULE 6: STATE COMPARISON
 #
 elif analysis_section == " State Comparison Tool":
     st.header(" Side-by-Side State Comparison")
@@ -760,11 +1192,11 @@ elif analysis_section == " State Comparison Tool":
 
 
 #
-# MODULE 6: GOVERNOR'S BRIEFING
+# MODULE 7: GOVERNOR'S BRIEFING
 #
 elif analysis_section == " Governor's Briefing":
     st.header(f" Governor's Briefing: {focal_state}")
-    st.markdown("*A narrative policy summary for executive decision-making.*")
+    st.markdown("*A data-based executive summary for the selected state.*")
 
     focal = df[df["state"] == focal_state].iloc[0]
 
@@ -781,80 +1213,19 @@ elif analysis_section == " Governor's Briefing":
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Policy narrative box
+    # Data summary box
     net = focal["net_educated_migrants"]
     conc = focal["talent_concentration"]
     nat_net = df["net_educated_migrants"].median()
     nat_conc = df["talent_concentration"].median()
+    narrative = (
+        f"**{focal_state} data snapshot:** Net educated migration is {net:+,.0f} versus a national median of "
+        f"{nat_net:+,.0f}. Talent concentration is {conc:.1f}% versus a national median of {nat_conc:.1f}%. "
+        f"Young net migration rate is {focal['young_net_migration_rate']:+.2f} per 1,000, and renter cost burden "
+        f"is {focal['rent_burden_30plus_rate']:.1f}%."
+    )
 
-    if net > nat_net and conc > nat_conc:
-        narrative = f"""**{focal_state} is a Talent Hub.** The state both attracts significant educated talent from other states
-        AND maintains a high concentration of degree holders. This is a position of strength. Policy priority should focus on
-        **retaining this advantage** through housing affordability, quality-of-life investments, and advanced industry development."""
-    elif net > nat_net and conc <= nat_conc:
-        narrative = f"""**{focal_state} is a Rising Gainer.** In-migration is above national median, indicating growing attractiveness,
-        but the base talent concentration remains below the national average. This is a promising trend. Policy should focus on
-        **deepening the talent pipeline** — growing higher education capacity and converting in-migrants into permanent residents."""
-    elif net <= nat_net and conc > nat_conc:
-        narrative = f"""**{focal_state} is an At-Risk Retainer.** The state has a strong existing talent pool but is experiencing
-        below-median net migration — suggesting talent is leaving faster than new talent arrives. This is the classic "brain drain" warning.
-        Policy must urgently address **competitive wages, remote work infrastructure, and cost-of-living** to stem outflows."""
-    else:
-        narrative = f"""**{focal_state} faces Brain Drain Risk.** Both net migration and talent concentration are below national medians.
-        The state is losing educated workers and not replacing them at sufficient rates. Without intervention, this creates a compounding
-        disadvantage. Immediate priorities should include **targeted talent attraction incentives, rural broadband, and industry diversification.**"""
-
-    st.markdown(f'<div class="policy-box"><h4> Executive Policy Summary</h4><p>{narrative}</p></div>', unsafe_allow_html=True)
-
-    # 3-panel story: stock → flow → outcome
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.markdown('<div class="section-header">1. Talent Stock</div>', unsafe_allow_html=True)
-        df["Highlight"] = df["state"].apply(lambda s: focal_state if s == focal_state else "Other States")
-        fig_s1 = px.bar(
-            df, x="stock_educated_total", y="state", color="Highlight",
-            color_discrete_map={focal_state: "#f9a825", "Other States": "#cfd8dc"},
-            orientation="h",
-            labels={"stock_educated_total": "Total BA+ Holders", "state": ""},
-            title="Educated Population Stock",
-            height=750,
-        )
-        fig_s1.update_layout(yaxis={"categoryorder": "total ascending"}, showlegend=False)
-        st.plotly_chart(fig_s1, use_container_width=True)
-
-    with col2:
-        st.markdown('<div class="section-header">2. Educated Migration Flow</div>', unsafe_allow_html=True)
-        fig_s2 = px.scatter(
-            df, x="interstate_in_educated", y="interstate_out_educated",
-            color="Highlight",
-            color_discrete_map={focal_state: "#f9a825", "Other States": "#90a4ae"},
-            size="stock_educated_total",
-            hover_name="state",
-            labels={"interstate_in_educated": "In-Migrants", "interstate_out_educated": "Out-Migrants (est.)"},
-            title="In vs. Out Migration Volume",
-            height=750,
-        )
-        fig_s2.add_shape(type="line", x0=0, y0=0,
-                         x1=df["interstate_in_educated"].max(), y1=df["interstate_in_educated"].max(),
-                         line=dict(color="gray", dash="dash"))
-        st.plotly_chart(fig_s2, use_container_width=True)
-
-    with col3:
-        st.markdown('<div class="section-header">3. Policy Outcome Position</div>', unsafe_allow_html=True)
-        fig_s3 = px.scatter(
-            df, x="net_migration_rate", y="talent_concentration",
-            color="Highlight",
-            color_discrete_map={focal_state: "#f9a825", "Other States": "#90a4ae"},
-            size="stock_educated_total",
-            hover_name="state",
-            labels={"net_migration_rate": "Net Migration Rate", "talent_concentration": "Talent Concentration (%)"},
-            title="Net Rate vs. Concentration",
-            height=750,
-        )
-        fig_s3.add_hline(y=df["talent_concentration"].median(), line_dash="dash", line_color="gray", opacity=0.5)
-        fig_s3.add_vline(x=df["net_migration_rate"].median(), line_dash="dash", line_color="gray", opacity=0.5)
-        st.plotly_chart(fig_s3, use_container_width=True)
+    st.markdown(f'<div class="policy-box"><h4> Executive Data Summary</h4><p>{narrative}</p></div>', unsafe_allow_html=True)
 
     # Raw stats table
     st.markdown('<div class="section-header">Full Metrics for ' + focal_state + '</div>', unsafe_allow_html=True)
@@ -879,7 +1250,7 @@ elif analysis_section == " Governor's Briefing":
 
 
 #
-# MODULE 7: METHODOLOGY
+# MODULE 8: METHODOLOGY
 #
 elif analysis_section == " Methodology & Limitations":
     st.header(" Methodology & Data Limitations")
@@ -888,7 +1259,7 @@ elif analysis_section == " Methodology & Limitations":
     <div class="policy-box">
     <h4> Data Sources (All ACS 5-Year Estimates)</h4>
     <ul>
-    <li><b>B07009</b> — Geographical Mobility by Educational Attainment (current residence). Used for in-migration counts.
+    <li><b>B07009</b> — Geographical Mobility by Educational Attainment (current residence). Used for educated in-migration counts.
         Interstate in-migrants = "Moved from different state" rows (_025E total, _029E bachelor's, _030E graduate/professional).</li>
     <li><b>B07409</b> — Geographical Mobility by Educational Attainment (residence 1 year ago). Used as a <em>proxy</em> for out-migration.
         This captures people whose prior-year address was in a given state and who moved away.</li>
@@ -896,6 +1267,12 @@ elif analysis_section == " Methodology & Limitations":
         for concentration and drain calculations (_022E BA, _023E MA, _024E Professional, _025E Doctorate).</li>
     <li><b>B20004</b> — Median Earnings by Sex by Educational Attainment. Used for wage competitiveness analysis
         (_005E bachelor's earnings, _006E graduate earnings).</li>
+    <li><b>B07001</b> — Geographical Mobility by Age (current residence). Used for young interstate in-migration
+        ages 25-34 (25-29 + 30-34 bins).</li>
+    <li><b>B07401</b> — Geographical Mobility by Age (residence 1 year ago). Used as a <em>proxy</em> for young
+        interstate out-migration ages 25-34.</li>
+    <li><b>B25070</b> — Gross Rent as a Percentage of Household Income. Used to compute renter cost-burden pressure
+        (share spending 30%+ of income on rent).</li>
     </ul>
     </div>
     """, unsafe_allow_html=True)
@@ -907,16 +1284,21 @@ elif analysis_section == " Methodology & Limitations":
     It does not capture who left. B07409 (prior-year residence) is the best proxy for out-migration but is not a perfect
     complement — methodological differences exist between the two tables. Net figures are directional estimates.</p>
 
-    <p><b>2. Age limitations:</b> ACS B07009/B07409 cover population 25+ but do not isolate the 22–35 "young professional"
-    cohort specifically. The app analyzes the full 25+ educated population, which includes older degree holders.</p>
+    <p><b>2. Young cohort measurement:</b> Young-talent metrics use B07001/B07401 age bins 25-29 and 30-34. This improves
+    age specificity versus the 25+ educated flow metrics, but still excludes younger movers under 25 and does not isolate
+    degree status within the young-only module.</p>
 
-    <p><b>3. Safe terminology:</b> Use "educated in-migration" and "estimated net migration." Avoid asserting "brain drain"
+    <p><b>3. Safe terminology:</b> Use "educated in-migration", "young net migration", and "estimated net migration."
+    Avoid asserting "brain drain"
     as a confirmed fact — this analysis identifies <em>risk indicators</em>, not causation.</p>
 
     <p><b>4. Earnings (B20004):</b> These are median earnings for workers with earnings — not all residents.
     They reflect current state market conditions and may understate remote-worker income if that worker moved for lifestyle reasons.</p>
 
-    <p><b>5. ACS 5-Year estimates:</b> These are period estimates (e.g., 2018–2022), not single-year snapshots.
+    <p><b>5. Affordability proxy limits:</b> B25070 reflects renter households, not owners. Cost-burden rates do not
+    represent full cost-of-living, and they do not include wages directly.</p>
+
+    <p><b>6. ACS 5-Year estimates:</b> These are period estimates (e.g., 2018–2022), not single-year snapshots.
     They are best for structural comparisons, not tracking year-over-year changes.</p>
     </div>
     """, unsafe_allow_html=True)
@@ -927,6 +1309,10 @@ elif analysis_section == " Methodology & Limitations":
     <ul>
     <li><b>Net Educated Migration</b> = Interstate In-Migrants (educated) − Interstate Out-Migrants est. (educated)</li>
     <li><b>Migration Rates</b> = (migrants / pop_25plus) × 1,000</li>
+    <li><b>Young In-Migration (25-34)</b> = B07001_070E + B07001_071E</li>
+    <li><b>Young Out-Migration est. (25-34)</b> = B07401_070E + B07401_071E</li>
+    <li><b>Young Net Migration Rate</b> = ((young in − young out) / young pop 25-34) × 1,000</li>
+    <li><b>Rent-Burden Rate (30%+)</b> = (B25070_007E + _008E + _009E + _010E) / (B25070_001E − B25070_011E) × 100</li>
     <li><b>Talent Concentration</b> = (BA+ stock / total pop 25+) × 100</li>
     <li><b>Migration as % of Stock</b> = (migrants / BA+ stock) × 100 — key brain drain signal</li>
     <li><b>Educated Share of Migration</b> = (educated migrants / all migrants) × 100 — quality signal</li>

@@ -3,4 +3,5 @@ pandas
 census
 us
 plotly
-
+statsmodels
+altair
