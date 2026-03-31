@@ -1,0 +1,18 @@
+[project]
+name = "brain-drain-intelligence-platform"
+version = "0.1.0"
+description = "A Streamlit dashboard for analyzing interstate migration of educated workers across all 50 U.S. states."
+readme = "README.md"
+requires-python = ">=3.11,<3.15"
+dependencies = [
+    "altair==6.0.0",
+    "census==0.8.25",
+    "pandas==2.3.3",
+    "plotly==6.5.2",
+    "statsmodels==0.14.6",
+    "streamlit==1.54.0",
+    "us==3.2.0",
+]
+
+[tool.uv]
+package = false
