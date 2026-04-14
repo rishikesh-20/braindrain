@@ -75,20 +75,11 @@ st.markdown("""
         --negative: #ef5350;
         --warning: #f6c453;
         --border: rgba(148, 163, 184, 0.24);
-        --hero-overlay: rgba(86, 182, 255, 0.08);
-        --chart-panel: rgba(10, 18, 32, 0.02);
     }
     .stApp {
         background:
-            radial-gradient(circle at top right, var(--hero-overlay), transparent 28%),
-            linear-gradient(180deg, var(--app-bg) 0%, var(--app-bg) 100%);
-    }
-    .stApp h1, .stApp h2, .stApp h3, .stApp label, .stApp p, .stApp li, .stApp span {
-        color: var(--text-strong);
-    }
-    .stApp [data-testid="stMarkdownContainer"] p,
-    .stApp [data-testid="stMarkdownContainer"] li {
-        color: var(--text-body);
+            radial-gradient(circle at top right, rgba(86, 182, 255, 0.08), transparent 28%),
+            linear-gradient(180deg, #0a101a 0%, #0b1220 100%);
     }
     .metric-card {
         background: linear-gradient(180deg, var(--surface-soft) 0%, #24476f 100%);
@@ -228,50 +219,6 @@ st.markdown("""
     }
     [data-testid="stMetricLabel"] {
         color: var(--text-body);
-    }
-    @media (prefers-color-scheme: light) {
-        :root {
-            --app-bg: #f4f7fb;
-            --surface: #ffffff;
-            --surface-raised: #f8fbff;
-            --surface-soft: #edf4ff;
-            --text-strong: #162235;
-            --text-body: #334155;
-            --text-muted: #64748b;
-            --accent: #1d7dd8;
-            --accent-soft: rgba(29, 125, 216, 0.10);
-            --positive: #179c64;
-            --negative: #d94841;
-            --warning: #d38b13;
-            --border: rgba(15, 23, 42, 0.10);
-            --hero-overlay: rgba(29, 125, 216, 0.08);
-            --chart-panel: rgba(29, 125, 216, 0.03);
-        }
-        .metric-card {
-            background: linear-gradient(180deg, #f4f8ff 0%, #dcecff 100%);
-            box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
-        }
-        .policy-box {
-            background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(247, 250, 255, 0.98) 100%);
-            box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
-        }
-        .warn-box {
-            background: linear-gradient(180deg, #fff8ea 0%, #fff1d2 100%);
-        }
-        .warn-box h4 {
-            color: #9a5b00;
-        }
-        .warn-box p, .warn-box li, .warn-box b {
-            color: #6b4b16;
-        }
-        .helper-note,
-        .context-banner,
-        .ai-panel {
-            background: rgba(255, 255, 255, 0.9);
-        }
-        .stApp [data-testid="stSidebar"] {
-            background: #eef3f8;
-        }
     }
 </style>
 """, unsafe_allow_html=True)
