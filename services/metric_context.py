@@ -101,6 +101,21 @@ DISPLAY_LABELS = {
 }
 
 
+def _first_available_column(df: pd.DataFrame, candidates: list[str]) -> str:
+    for column in candidates:
+        if column in df.columns:
+            return column
+    raise KeyError(f"None of the expected columns are available: {', '.join(candidates)}")
+
+
+def _migration_metric_column(df: pd.DataFrame) -> str:
+    return _first_available_column(df, ["net_migration_rate", "young_net_migration_rate"])
+
+
+def _migration_metric_label(metric_col: str) -> str:
+    return DISPLAY_LABELS.get(metric_col, metric_col)
+
+
 def _state_row(df: pd.DataFrame, state: str) -> pd.Series:
     return df[df["state"] == state].iloc[0]
 
@@ -174,16 +189,17 @@ def build_chart_context(
     }
 
     if chart_id == "quadrant":
-        top_positive = df.nlargest(3, "net_migration_rate")[["state", "net_migration_rate"]].round(2).to_dict("records")
-        top_negative = df.nsmallest(3, "net_migration_rate")[["state", "net_migration_rate"]].round(2).to_dict("records")
+        metric_col = _migration_metric_column(df)
+        top_positive = df.nlargest(3, metric_col)[["state", metric_col]].round(2).to_dict("records")
+        top_negative = df.nsmallest(3, metric_col)[["state", metric_col]].round(2).to_dict("records")
         context = {
             **base_context,
             "axes": {
-                "x": "Educated Net Migration Rate (per 1k)",
+                "x": _migration_metric_label(metric_col),
                 "y": "Talent Concentration (%)",
             },
             "benchmark_lines": {
-                "national_median_net_migration_rate_per_1k": round(float(df["net_migration_rate"].median()), 2),
+                "national_median_net_migration_rate_per_1k": round(float(df[metric_col].median()), 2),
                 "national_median_talent_concentration_pct": round(float(df["talent_concentration"].median()), 1),
             },
             "top_positive_outliers": top_positive,
@@ -191,23 +207,24 @@ def build_chart_context(
         }
         if focal is not None:
             context["focal_point"] = {
-                "net_migration_rate_per_1k": round(float(focal["net_migration_rate"]), 2),
+                "net_migration_rate_per_1k": round(float(focal[metric_col]), 2),
                 "talent_concentration_pct": round(float(focal["talent_concentration"]), 1),
                 "segment": focal["segment"],
             }
         return context
 
     if chart_id == "choropleth":
-        top_positive = df.nlargest(5, "net_migration_rate")[["state", "net_migration_rate"]].round(2).to_dict("records")
-        top_negative = df.nsmallest(5, "net_migration_rate")[["state", "net_migration_rate"]].round(2).to_dict("records")
+        metric_col = _migration_metric_column(df)
+        top_positive = df.nlargest(5, metric_col)[["state", metric_col]].round(2).to_dict("records")
+        top_negative = df.nsmallest(5, metric_col)[["state", metric_col]].round(2).to_dict("records")
         context = {
             **base_context,
-            "metric": "Educated Net Migration Rate (per 1k)",
+            "metric": _migration_metric_label(metric_col),
             "top_positive_states": top_positive,
             "top_negative_states": top_negative,
         }
         if focal is not None:
-            context["focal_value"] = round(float(focal["net_migration_rate"]), 2)
+            context["focal_value"] = round(float(focal[metric_col]), 2)
         return context
 
     if chart_id == "peer_gaps":
