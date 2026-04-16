@@ -160,7 +160,6 @@ def build_briefing_context(df: pd.DataFrame, focal_state: str) -> dict:
             "young_net_migration_rate_rank": int(ranked_young.loc[focal.name]),
             "rent_burden_rank_lower_is_better": int(ranked_rent.loc[focal.name]),
         },
-        "methodology_cautions": METHODOLOGY_NOTES,
     }
 
 
@@ -185,7 +184,6 @@ def build_chart_context(
         "displayed_state_count": int(df["state"].nunique()) if "state" in df.columns else 0,
         "applied_filters": applied_filters,
         "visual_encoding": visual_encoding or {},
-        "cautions": METHODOLOGY_NOTES,
     }
 
     if chart_id == "quadrant":
@@ -338,7 +336,6 @@ def get_national_summary(df: pd.DataFrame) -> dict:
             "lowest_talent_concentration_states": bottom_talent,
         },
         "segment_counts": segment_counts,
-        "methodology_cautions": METHODOLOGY_NOTES,
     }
 
 
@@ -379,7 +376,6 @@ def get_full_dashboard_context(df: pd.DataFrame, top_n: int = 10) -> dict:
         "leaderboards": leaderboards,
         "state_metric_rows": state_metric_rows,
         "segment_counts": df["segment"].value_counts().to_dict(),
-        "methodology_cautions": METHODOLOGY_NOTES,
     }
 
 
@@ -398,7 +394,6 @@ def analyze_metric_relationship(df: pd.DataFrame, metric_a: str, metric_b: str, 
         "rows": metric_df.round(2).to_dict("records"),
         "top_metric_a_rows": strongest_metric_a,
         "top_metric_b_rows": strongest_metric_b,
-        "methodology_cautions": METHODOLOGY_NOTES,
     }
 
 
@@ -417,7 +412,6 @@ def get_state_metrics(df: pd.DataFrame, state: str) -> dict:
             "bachelors_earnings_premium_usd": round(float(focal["bachelors_earnings_premium"]), 0),
             "policy_segment": focal["segment"],
         },
-        "methodology_cautions": METHODOLOGY_NOTES,
     }
 
 
@@ -439,7 +433,6 @@ def compare_states(df: pd.DataFrame, state_a: str, state_b: str) -> dict:
     return {
         "states": [state_a, state_b],
         "comparisons": comparisons,
-        "methodology_cautions": METHODOLOGY_NOTES,
     }
 
 
@@ -453,7 +446,6 @@ def rank_states(df: pd.DataFrame, metric: str, top_n: int = 5, ascending: bool =
         "top_n": top_n,
         "ascending": ascending,
         "rows": rows,
-        "methodology_cautions": METHODOLOGY_NOTES,
     }
 
 
@@ -478,7 +470,6 @@ def find_peer_states(df: pd.DataFrame, state: str, top_n: int = 5) -> dict:
             {"state": row["state"], "distance": round(float(row["distance"]), 2)}
             for _, row in nearest.iterrows()
         ],
-        "methodology_cautions": METHODOLOGY_NOTES,
     }
 
 

@@ -864,10 +864,6 @@ def build_deterministic_briefing_payload(df, focal_state):
         "strengths": strengths,
         "risks": risks,
         "policy_options": policy_options,
-        "cautions": [
-            "This fallback briefing is generated directly from dashboard metrics without narrative model synthesis.",
-            "Out-migration is based on ACS proxy measures, so net migration should be read directionally.",
-        ],
     }
 
 
@@ -960,10 +956,6 @@ def render_briefing_payload(payload, deterministic=False):
         if payload.get("policy_options"):
             st.markdown("**Policy Options to Explore**")
             for item in payload["policy_options"]:
-                st.write(f"- {item}")
-        if payload.get("cautions"):
-            st.markdown("**Cautions**")
-            for item in payload["cautions"]:
                 st.write(f"- {item}")
 
 
@@ -2043,14 +2035,14 @@ elif analysis_section == " Governor's Briefing":
                     ai_caption()
                     if "headline" in payload:
                         render_briefing_payload(payload)
-                        st.caption("Data used: focal state metrics, national medians, ranks, and methodology notes from this dashboard")
+                        st.caption("Data used: focal state metrics, national medians, and ranks from this dashboard")
                         st.caption("Tool path: `generate_briefing`")
                     else:
                         if payload.get("error"):
                             st.caption(f"AI unavailable: {payload['error']}")
                         if payload.get("fallback"):
                             render_briefing_payload(payload["fallback"], deterministic=True)
-                            st.caption("Data used: focal state metrics, national medians, ranks, and methodology notes from this dashboard")
+                            st.caption("Data used: focal state metrics, national medians, and ranks from this dashboard")
                             st.caption("Tool path: `deterministic_briefing_fallback`")
                         else:
                             st.info("The app could not generate a briefing for this state.")

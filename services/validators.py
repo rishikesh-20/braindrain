@@ -60,6 +60,12 @@ def extract_allowed_numbers(context: dict) -> set[str]:
     for value in _flatten_values(context):
         for token in NUMBER_PATTERN.findall(value):
             allowed.add(_normalize_numeric_token(token))
+
+    # Allow canonical threshold values implied by metric names already present
+    # in the app context, such as rent burden 30%+.
+    serialized_context = str(context)
+    if "30plus" in serialized_context or "30%+" in serialized_context:
+        allowed.update({"30", "30.0", "30.00"})
     return allowed
 
 

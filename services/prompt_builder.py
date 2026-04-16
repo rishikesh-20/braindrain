@@ -10,7 +10,6 @@ Do not introduce any fact, number, rank, trend, cause, policy outcome, or compar
 If the answer cannot be supported by the provided data, say that clearly.
 Do not use outside knowledge.
 Repeat numeric values only when they appear in the provided context.
-Always reflect the provided methodology cautions when they materially affect the interpretation.
 """.strip()
 
 
@@ -24,7 +23,7 @@ def build_briefing_prompt(context: dict) -> str:
 
 Task:
 Write a concise governor-facing briefing based only on the provided dashboard context.
-Keep the tone analytical and cautious.
+Keep the tone analytical and concise.
 Return strengths, risks, and policy options grounded in the metrics.
 Policy options must be framed as possible areas of focus, not promises of impact.
 
