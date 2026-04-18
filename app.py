@@ -642,6 +642,101 @@ def score_metric_against_median(value, median, lower_is_better=False, tolerance=
     return "warning"
 
 
+def _table_styles():
+    return [
+        {
+            "selector": "th",
+            "props": [
+                ("background-color", "#171c26"),
+                ("color", "#e9eef8"),
+                ("font-weight", "700"),
+                ("border", "1px solid rgba(255,255,255,0.08)"),
+                ("padding", "0.65rem 0.8rem"),
+            ],
+        },
+        {
+            "selector": "td",
+            "props": [
+                ("background-color", "#0f141c"),
+                ("color", "#eef4ff"),
+                ("border", "1px solid rgba(255,255,255,0.06)"),
+                ("padding", "0.55rem 0.8rem"),
+            ],
+        },
+        {
+            "selector": "table",
+            "props": [
+                ("border-collapse", "collapse"),
+                ("border-radius", "12px"),
+                ("overflow", "hidden"),
+            ],
+        },
+    ]
+
+
+def _blend_channel(start, end, ratio):
+    return round(start + (end - start) * ratio)
+
+
+def _hsl_scale_css(value, series, lower_is_better=False):
+    if pd.isna(value):
+        return "background-color: rgba(255,255,255,0.02); color: #eef4ff;"
+    finite = series.dropna()
+    if finite.empty:
+        return "background-color: rgba(255,255,255,0.02); color: #eef4ff;"
+    mn, mx = float(finite.min()), float(finite.max())
+    ratio = 0.5 if mx == mn else (float(value) - mn) / (mx - mn)
+    if lower_is_better:
+        ratio = 1 - ratio
+    hue = _blend_channel(10, 150, ratio)
+    sat = _blend_channel(78, 56, ratio)
+    light = _blend_channel(56, 34, ratio)
+    text_color = "#081018" if ratio >= 0.58 else "#f8fbff"
+    return f"background-color: {hsl_color(hue, sat, light)}; color: {text_color}; font-weight: 650;"
+
+
+def _rent_burden_hsl_css(value, series):
+    if pd.isna(value):
+        return "background-color: rgba(255,255,255,0.02); color: #eef4ff;"
+    finite = series.dropna()
+    if finite.empty:
+        return "background-color: rgba(255,255,255,0.02); color: #eef4ff;"
+    mn, mx = float(finite.min()), float(finite.max())
+    ratio = 0.5 if mx == mn else (float(value) - mn) / (mx - mn)
+    # Lower rent burden is better: low values read greener, high values redder.
+    hue = _blend_channel(150, 8, ratio)
+    sat = _blend_channel(52, 82, ratio)
+    light = _blend_channel(34, 58, ratio)
+    text_color = "#081018" if ratio <= 0.22 else "#f8fbff"
+    return f"background-color: {hsl_color(hue, sat, light)}; color: {text_color}; font-weight: 700;"
+
+
+def style_young_diagnostic_table(diag_df):
+    styler = (
+        diag_df.style
+        .format({
+            "Young In-Migrants": "{:,.0f}",
+            "Young Out-Migrants (est.)": "{:,.0f}",
+            "Young Net Migrants": "{:+,.0f}",
+            "Young In-Rate (per 1k)": "{:.2f}",
+            "Young Out-Rate (per 1k)": "{:.2f}",
+            "Young Net Rate (per 1k)": "{:+.2f}",
+            "Rent Burden Rate 30%+": "{:.1f}%",
+        })
+        .set_table_styles(_table_styles())
+    )
+    styler = styler.map(
+        lambda value: _hsl_scale_css(value, diag_df["Young Net Rate (per 1k)"], lower_is_better=False),
+        subset=["Young Net Rate (per 1k)"],
+    )
+    styler = styler.map(
+        lambda value: _rent_burden_hsl_css(value, diag_df["Rent Burden Rate 30%+"]),
+        subset=["Rent Burden Rate 30%+"],
+    )
+    styler = styler.map(lambda _: "color: #f8fbff; font-weight: 600;", subset=["State"])
+    return styler
+
+
 def get_metric_mode_config(dashboard_focus="Educated migrants"):
     is_young_focus = dashboard_focus == "Young migrants"
     primary_metric_col = "young_net_migration_rate" if is_young_focus else "net_migration_rate"
@@ -931,9 +1026,11 @@ def build_briefing_visual_df(df, focal_state):
                 "Color": get_signal_hsl(signal),
                 "PercentileScore": percentile,
                 "MedianScore": 50,
+                "MedianValue": item["median"],
                 "MedianDisplay": f"U.S. median: {item['median']:.1f}" if item["label"] not in {"BA Earnings Premium", "Educated Net Rate", "Young Net Rate"} else (
                     f"U.S. median: ${item['median']:,.0f}" if item["label"] == "BA Earnings Premium" else f"U.S. median: {item['median']:+.2f} per 1k"
                 ),
+                "BetterWhen": "Lower is better" if item["lower_is_better"] else "Higher is better",
             }
         )
     return pd.DataFrame(rows), str(focal["segment"])
@@ -1798,8 +1895,12 @@ elif analysis_section == " Young Talent + Affordability Risk":
         "young_net_migration_rate": "Young Net Rate (per 1k)",
         "rent_burden_30plus_rate": "Rent Burden Rate 30%+",
     }).round(2)
-    st.dataframe(diag_df.sort_values("Young Net Rate (per 1k)"),
-                 use_container_width=True, hide_index=True)
+    diag_df = diag_df.sort_values("Young Net Rate (per 1k)", ascending=False).reset_index(drop=True)
+    st.dataframe(
+        style_young_diagnostic_table(diag_df),
+        use_container_width=True,
+        hide_index=True,
+    )
 
 
 #
@@ -2049,7 +2150,7 @@ elif analysis_section == " Governor's Briefing":
 
                     render_section_header("Briefing visual summary")
                     briefing_visual_df, policy_segment = build_briefing_visual_df(df, focal_state)
-                    render_helper_note("Scores above 50 outperform the U.S. median after accounting for whether higher or lower values are better.")
+                    render_helper_note("The dashed line marks a relative national-standing score of 50, which represents the U.S. median. The table below shows the exact U.S. median for each metric and whether higher or lower values are better.")
                     visual_cols = st.columns([1.2, 3.8])
                     with visual_cols[0]:
                         segment_signal = "positive" if policy_segment in {"Talent Hub", "Rising Gainer"} else "negative"
@@ -2114,6 +2215,17 @@ elif analysis_section == " Governor's Briefing":
                             ),
                         )
                         st.plotly_chart(fig_briefing, use_container_width=True)
+                        st.dataframe(
+                            briefing_visual_df[["Metric", "Display", "MedianDisplay", "BetterWhen"]].rename(
+                                columns={
+                                    "Display": "State value",
+                                    "MedianDisplay": "U.S. median",
+                                    "BetterWhen": "Interpretation",
+                                }
+                            ),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
 
         # Raw stats table
         focal_metrics = {
