@@ -1,6 +1,6 @@
 # Brain Drain Intelligence Platform
 
-Interactive Streamlit dashboard for analyzing interstate migration of educated workers across all 50 U.S. states using live U.S. Census Bureau ACS 5-Year Estimates data.
+Interactive Streamlit dashboard for analyzing interstate migration of educated talent across all 50 U.S. states using U.S. Census Bureau ACS 5-Year Estimates data.
 
 App deployment URL: [https://braindrain.streamlit.app/](https://braindrain.streamlit.app/)
 
@@ -30,21 +30,38 @@ This repo now defines dependencies in `pyproject.toml` and locks them in `uv.loc
 
 ## Gemini Features
 
-The app now includes grounded Gemini features on the Executive Dashboard and Governor's Briefing pages:
+The app includes grounded Gemini features on the Executive Dashboard and Governor's Briefing pages:
 
 - AI governor briefing generation
 - AI chart explanations
-- Ask-the-data chat
 
-These features are intentionally constrained to use only the Census-derived metrics already computed by the app plus the in-app methodology notes. They do not fetch outside data.
+These features are intentionally constrained to use only the Census-derived metrics already computed by the app. They do not fetch outside data, and the app falls back to deterministic summaries when AI is unavailable.
+
+## App Modules
+
+The current app is organized into five major sections:
+
+- Executive Dashboard
+- Young Talent + Affordability Risk
+- State Comparison Tool
+- Governor's Briefing
+- Methodology & Limitations
+
+The Executive Dashboard is the main decision-support view and includes KPI cards, a national positioning scatterplot, a geographic choropleth, peer benchmarking, and driver analysis views.
+
+The Young Talent + Affordability Risk module adds a Phase 2 diagnostic layer focused on ages 25-34 mobility and rent burden.
+
+The State Comparison Tool provides direct side-by-side benchmarking between two states through metric tables and normalized comparison views.
+
+The Governor's Briefing module turns the selected state's metrics into an executive summary, an AI-generated briefing, and a normalized visual summary against U.S. medians.
 
 ## Verification Checklist
 
 - `uv sync` completes successfully
 - `uv run streamlit run app.py` starts the app
 - Gemini AI controls appear only when `GEMINI_API_KEY` is present
-- North Carolina KPI values match the current deployed app
-- Choropleth map renders correctly
-- State comparison still works
-- Governor briefing values match
+- Executive Dashboard renders KPI cards, national positioning, and choropleth views
+- Young Talent + Affordability Risk renders the ranking chart and diagnostic table
+- State Comparison Tool renders the metric table and normalized comparison views
+- Governor's Briefing renders the executive summary, AI briefing workflow, and briefing visual summary
 - No missing dependency errors appear at runtime
