@@ -54,14 +54,3 @@ The Young Talent + Affordability Risk module adds a Phase 2 diagnostic layer foc
 The State Comparison Tool provides direct side-by-side benchmarking between two states through metric tables and normalized comparison views.
 
 The Governor's Briefing module turns the selected state's metrics into an executive summary, an AI-generated briefing, and a normalized visual summary against U.S. medians.
-
-## Verification Checklist
-
-- `uv sync` completes successfully
-- `uv run streamlit run app.py` starts the app
-- Gemini AI controls appear only when `GEMINI_API_KEY` is present
-- Executive Dashboard renders KPI cards, national positioning, and choropleth views
-- Young Talent + Affordability Risk renders the ranking chart and diagnostic table
-- State Comparison Tool renders the metric table and normalized comparison views
-- Governor's Briefing renders the executive summary, AI briefing workflow, and briefing visual summary
-- No missing dependency errors appear at runtime
