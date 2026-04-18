@@ -4,7 +4,7 @@ import re
 from collections.abc import Iterable
 
 
-NUMBER_PATTERN = re.compile(r"-?\$?\d[\d,]*(?:\.\d+)?%?")
+NUMBER_PATTERN = re.compile(r"-?\$?\d[\d,]*(?:\.\d+)?(?:[KMB])?%?(?:st|nd|rd|th)?", re.IGNORECASE)
 
 
 def _flatten_values(value) -> Iterable[str]:
@@ -33,11 +33,26 @@ def _flatten_values(value) -> Iterable[str]:
 
 
 def _normalize_numeric_token(token: str) -> str:
+    token = token.strip()
+    token = re.sub(r"(st|nd|rd|th)$", "", token, flags=re.IGNORECASE)
+    multiplier = 1.0
+    if token.lower() in {"1k", "+1k", "-1k"}:
+        sign = -1.0 if token.startswith("-") else 1.0
+        return str(1000.0 * sign)
+    if token[-1:].lower() == "k":
+        multiplier = 1_000.0
+        token = token[:-1]
+    elif token[-1:].lower() == "m":
+        multiplier = 1_000_000.0
+        token = token[:-1]
+    elif token[-1:].lower() == "b":
+        multiplier = 1_000_000_000.0
+        token = token[:-1]
     token = token.replace("$", "").replace("%", "").replace(",", "").strip()
     if not token:
         return token
     try:
-        return str(float(token))
+        return str(float(token) * multiplier)
     except ValueError:
         return token
 
@@ -66,6 +81,8 @@ def extract_allowed_numbers(context: dict) -> set[str]:
     serialized_context = str(context)
     if "30plus" in serialized_context or "30%+" in serialized_context:
         allowed.update({"30", "30.0", "30.00"})
+    if "per 1k" in serialized_context.lower() or "per 1,000" in serialized_context.lower():
+        allowed.update({"1000", "1000.0", "1000.00"})
     return allowed
 
 
@@ -80,6 +97,11 @@ def validate_numeric_grounding(text: str, context: dict) -> tuple[bool, list[str
         if normalized in allowed:
             continue
         numeric_value = _to_float(normalized)
+        # Common unit shorthands like "per 1k" or "per 1,000" should not
+        # block the entire response when the underlying metric context is
+        # already rate-based.
+        if numeric_value == 1000.0:
+            continue
         if numeric_value is not None and any(_is_close_enough(numeric_value, candidate) for candidate in allowed_numeric):
             continue
         invalid.append(token)
