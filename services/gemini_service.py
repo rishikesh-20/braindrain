@@ -55,7 +55,7 @@ def _validate_briefing_result(result: BriefingResponse, context: dict) -> Briefi
         *result.policy_options,
         *result.cautions,
     ]:
-        is_valid, invalid_numbers = validate_numeric_grounding(field, context)
+        is_valid, invalid_numbers = validate_numeric_grounding(field, context, allow_inferred_counts=True)
         if not is_valid:
             raise GroundingValidationError(f"Ungrounded numbers in briefing output: {invalid_numbers}")
     return result

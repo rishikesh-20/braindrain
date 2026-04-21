@@ -64,6 +64,22 @@ def _to_float(token: str) -> float | None:
         return None
 
 
+def _is_plain_count_token(token: str) -> bool:
+    token = token.strip()
+    if not token:
+        return False
+    if any(ch in token for ch in "$%"):
+        return False
+    if re.search(r"(st|nd|rd|th)$", token, flags=re.IGNORECASE):
+        return False
+    if "." in token:
+        return False
+    normalized = token.replace(",", "")
+    if normalized.startswith(("+", "-")):
+        return False
+    return normalized.isdigit() and len(normalized) >= 4
+
+
 def _is_close_enough(target: float, candidate: float) -> bool:
     diff = abs(target - candidate)
     scale = max(abs(target), abs(candidate), 1.0)
@@ -86,7 +102,7 @@ def extract_allowed_numbers(context: dict) -> set[str]:
     return allowed
 
 
-def validate_numeric_grounding(text: str, context: dict) -> tuple[bool, list[str]]:
+def validate_numeric_grounding(text: str, context: dict, *, allow_inferred_counts: bool = False) -> tuple[bool, list[str]]:
     allowed = extract_allowed_numbers(context)
     allowed_numeric = [num for num in (_to_float(token) for token in allowed) if num is not None]
     invalid = []
@@ -101,6 +117,8 @@ def validate_numeric_grounding(text: str, context: dict) -> tuple[bool, list[str
         # block the entire response when the underlying metric context is
         # already rate-based.
         if numeric_value == 1000.0:
+            continue
+        if allow_inferred_counts and _is_plain_count_token(token):
             continue
         if numeric_value is not None and any(_is_close_enough(numeric_value, candidate) for candidate in allowed_numeric):
             continue

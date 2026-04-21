@@ -1326,10 +1326,10 @@ if analysis_section == " Executive Dashboard":
             ), unsafe_allow_html=True)
         with s2:
             st.markdown(metric_card(
-                f"{scorecard_source['talent_concentration']:.1f}%",
-                "Talent Concentration",
-                "Share of adults with at least a bachelor's degree.",
-                "educated stock / adults 25+ x 100",
+                f"{scorecard_source['young_net_migration_rate']:+.2f}",
+                "Young Net Rate (25-34, per 1k)",
+                "Net gain or loss of adults ages 25 to 34 after adjusting for cohort size.",
+                "(young in - young out) / population 25-34 x 1,000",
             ), unsafe_allow_html=True)
         with s3:
             st.markdown(metric_card(
