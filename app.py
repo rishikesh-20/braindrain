@@ -494,8 +494,8 @@ with st.sidebar:
             " Executive Dashboard",
             " Young Talent + Affordability Risk",
             " State Comparison Tool",
-            " Governor's Briefing",
-            " Methodology & Limitations",
+        " Governor's Briefing",
+        " Methodology",
         ],
         label_visibility="collapsed",
     )
@@ -2252,8 +2252,8 @@ elif analysis_section == " Governor's Briefing":
 #
 # MODULE 8: METHODOLOGY
 #
-elif analysis_section == " Methodology & Limitations":
-    st.header(" Methodology & Data Limitations")
+elif analysis_section == " Methodology":
+    st.header(" Methodology")
 
     st.markdown("""
     <div class="policy-box">
@@ -2274,32 +2274,6 @@ elif analysis_section == " Methodology & Limitations":
     <li><b>B25070</b> — Gross Rent as a Percentage of Household Income. Used to compute renter cost-burden pressure
         (share spending 30%+ of income on rent).</li>
     </ul>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("""
-    <div class="warn-box">
-    <h4> Critical Interpretation Flags</h4>
-    <p><b>1. In-migration vs. Net Migration:</b> B07009 captures people who <em>arrived</em> in a state from another state.
-    It does not capture who left. B07409 (prior-year residence) is the best proxy for out-migration but is not a perfect
-    complement — methodological differences exist between the two tables. Net figures are directional estimates.</p>
-
-    <p><b>2. Young cohort measurement:</b> Young-talent metrics use B07001/B07401 age bins 25-29 and 30-34. This improves
-    age specificity versus the 25+ educated flow metrics, but still excludes younger movers under 25 and does not isolate
-    degree status within the young-only module.</p>
-
-    <p><b>3. Safe terminology:</b> Use "educated in-migration", "young net migration", and "estimated net migration."
-    Avoid asserting "brain drain"
-    as a confirmed fact — this analysis identifies <em>risk indicators</em>, not causation.</p>
-
-    <p><b>4. Earnings (B20004):</b> These are median earnings for workers with earnings — not all residents.
-    They reflect current state market conditions and may understate remote-worker income if that worker moved for lifestyle reasons.</p>
-
-    <p><b>5. Affordability proxy limits:</b> B25070 reflects renter households, not owners. Cost-burden rates do not
-    represent full cost-of-living, and they do not include wages directly.</p>
-
-    <p><b>6. ACS 5-Year estimates:</b> These are period estimates (e.g., 2018–2022), not single-year snapshots.
-    They are best for structural comparisons, not tracking year-over-year changes.</p>
     </div>
     """, unsafe_allow_html=True)
 
